@@ -1,0 +1,46 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+    id 'com.chaquo.python'
+}
+android {
+    namespace 'com.melodia.app'
+    compileSdk 34
+    defaultConfig {
+        applicationId "com.melodia.app"
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName "1.0"
+        ndk { abiFilters "arm64-v8a", "armeabi-v7a" }
+        python {
+            version "3.11"
+            pip {
+                install "flask"
+                install "yt-dlp"
+            }
+        }
+    }
+    signingConfigs {
+        melodia {
+            storeFile file("melodia.keystore")
+            storePassword "melodia123"
+            keyAlias "melodia"
+            keyPassword "melodia123"
+        }
+    }
+    buildTypes {
+        release {
+            signingConfig signingConfigs.melodia
+            minifyEnabled false
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions { jvmTarget = '17' }
+}
+dependencies {
+    implementation 'androidx.core:core-ktx:1.13.1'
+}
