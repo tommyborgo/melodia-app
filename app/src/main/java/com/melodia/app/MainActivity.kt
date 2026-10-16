@@ -24,6 +24,7 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.TextView
+import android.app.AlertDialog
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -68,6 +69,7 @@ class MainActivity : Activity() {
             }
             override fun onPageFinished(v: WebView, url: String) {
                 status.visibility = View.GONE; web.visibility = View.VISIBLE
+                checkUpdate()
             }
             override fun onReceivedError(v: WebView, r: WebResourceRequest, e: WebResourceError) {
                 if (r.isForMainFrame) {
@@ -129,6 +131,37 @@ class MainActivity : Activity() {
         val svc = Intent(this, ServerService::class.java)
         if (Build.VERSION.SDK_INT >= 26) startForegroundService(svc) else startService(svc)
         waitAndLoad()
+    }
+
+    private var updateChecked = false
+    /** Controlla su GitHub se esiste un APK più recente di quello installato e, in caso, propone di scaricarlo. */
+    private fun checkUpdate() {
+        if (updateChecked) return
+        updateChecked = true
+        Thread {
+            try {
+                val c = URL("https://api.github.com/repos/tommyborgo/melodia-app/releases/latest").openConnection() as HttpURLConnection
+                c.connectTimeout = 8000; c.readTimeout = 8000
+                val body = c.inputStream.bufferedReader().readText()
+                val m = Regex("\"updated_at\"\\s*:\\s*\"([^\"]+)\"", RegexOption.IGNORE_CASE).findAll(body).map { it.groupValues[1] }.toList()
+                val last = m.maxOrNull() ?: return@Thread
+                val fmt = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US)
+                fmt.timeZone = java.util.TimeZone.getTimeZone("UTC")
+                val t = fmt.parse(last)!!.time
+                // la release viene pubblicata ~1-3 minuti dopo la compilazione: serve un margine
+                if (t > BuildConfig.BUILD_TIME + 15 * 60 * 1000) {
+                    runOnUiThread {
+                        AlertDialog.Builder(this)
+                            .setTitle("Aggiornamento disponibile")
+                            .setMessage("È uscita una nuova versione di Melodia. Vuoi scaricarla?")
+                            .setPositiveButton("Scarica") { _, _ ->
+                                try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/tommyborgo/melodia-app/releases/latest/download/melodia.apk"))) } catch (_: Exception) {}
+                            }
+                            .setNegativeButton("Più tardi", null).show()
+                    }
+                }
+            } catch (_: Exception) {}
+        }.start()
     }
 
     private fun askHomeShortcut() {

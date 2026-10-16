@@ -6,7 +6,7 @@ import os, sys, urllib.request, urllib.error
 CLOUD = os.environ.get('MELODIA_CLOUD', 'https://melodia-server-9yo3.onrender.com').rstrip('/')
 CLOUD_PREFIXES = ('/api/register', '/api/login', '/api/account_data', '/api/sync',
                   '/api/share_playlist', '/api/get_shared', '/api/share_track',
-                  '/api/get_shared_track', '/api/connect/sync')
+                  '/api/get_shared_track', '/api/connect/sync', '/api/feedback')
 
 
 def init(app, request, jsonify, Response):
@@ -29,6 +29,20 @@ def init(app, request, jsonify, Response):
             return Response(e.read(), status=e.code, content_type=e.headers.get('Content-Type', 'application/json'))
         except Exception as e:
             return jsonify({'error': 'cloud_unreachable', 'detail': str(e)}), 503
+
+
+    @app.after_request
+    def _inject(resp):
+        try:
+            p = request.path
+            if (p in ('/', '/spotify_moto.html') or p.startswith('/s/')) and resp.status_code == 200 and resp.mimetype == 'text/html':
+                html = resp.get_data(as_text=True)
+                if '</body>' in html and 'melodia_extras.js' not in html:
+                    tag = '<script async src="%s/melodia_extras.js"></script>' % CLOUD
+                    resp.set_data(html.replace('</body>', tag + '</body>', 1))
+        except Exception:
+            pass
+        return resp
 
 
 def patch_ffmpeg():
