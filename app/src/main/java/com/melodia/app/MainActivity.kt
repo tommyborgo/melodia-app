@@ -149,7 +149,7 @@ class MainActivity : Activity() {
                 fmt.timeZone = java.util.TimeZone.getTimeZone("UTC")
                 val t = fmt.parse(last)!!.time
                 // la release viene pubblicata ~1-3 minuti dopo la compilazione: serve un margine
-                if (t > BuildConfig.BUILD_TIME + 15 * 60 * 1000) {
+                if (t > BuildConfig.BUILD_TIME + 60 * 60 * 1000) {
                     runOnUiThread {
                         AlertDialog.Builder(this)
                             .setTitle("Aggiornamento disponibile")

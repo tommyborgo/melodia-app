@@ -1,15 +1,59 @@
 """Colla Android: avvia il server Melodia locale (stesso server.py del PC) dentro l'app,
 inoltra al cloud Render le sole funzioni di account/sincronizzazione, e sostituisce ffmpeg
 con il convertitore WAV nativo di Android."""
-import os, sys, urllib.request, urllib.error
+import os, sys, re, time, threading, urllib.request, urllib.error
 
 CLOUD = os.environ.get('MELODIA_CLOUD', 'https://melodia-server-9yo3.onrender.com').rstrip('/')
 CLOUD_PREFIXES = ('/api/register', '/api/login', '/api/account_data', '/api/sync',
                   '/api/share_playlist', '/api/get_shared', '/api/share_track',
-                  '/api/get_shared_track', '/api/connect/sync', '/api/feedback')
+                  '/api/get_shared_track', '/api/connect/sync', '/api/feedback',
+                  '/api/cat/', '/api/announce', '/api/push')
+
+_ui = {'started': False}
+_EXTRAS_RE = re.compile(r'<script[^>]*melodia_extras\.js[^>]*></script>')
+
+
+def _ui_file():
+    return os.path.join(os.environ.get('MELODIA_DATA_DIR', '.'), 'cloud_ui.html')
+
+
+def _refresh_ui():
+    """Scarica dal cloud l'ultima versione dell'interfaccia (così le novità arrivano senza reinstallare l'app)."""
+    while True:
+        try:
+            req = urllib.request.Request(CLOUD + '/spotify_moto.html?app=1', headers={'User-Agent': 'MelodiaApp'})
+            with urllib.request.urlopen(req, timeout=90) as r:
+                if r.status == 200:
+                    html = r.read().decode('utf-8', 'replace')
+                    if len(html) > 100000 and '</body>' in html and 'function goHome' in html:
+                        html = _EXTRAS_RE.sub('', html)
+                        tmp = _ui_file() + '.tmp'
+                        with open(tmp, 'w', encoding='utf-8') as f:
+                            f.write(html)
+                        os.replace(tmp, _ui_file())
+        except Exception:
+            pass
+        time.sleep(6 * 3600)
 
 
 def init(app, request, jsonify, Response):
+    @app.before_request
+    def _cloud_ui():
+        p = request.path
+        if p in ('/', '/spotify_moto.html') or p.startswith('/s/'):
+            if not _ui['started']:
+                _ui['started'] = True
+                threading.Thread(target=_refresh_ui, daemon=True).start()
+            try:
+                with open(_ui_file(), encoding='utf-8') as f:
+                    html = f.read()
+                r = Response(html, mimetype='text/html')
+                r.headers['Cache-Control'] = 'no-store'
+                return r
+            except Exception:
+                return None   # nessuna copia ancora: usa quella inclusa nell'app
+        return None
+
     @app.before_request
     def _to_cloud():
         p = request.path

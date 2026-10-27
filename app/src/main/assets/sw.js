@@ -1,6 +1,6 @@
 // Service Worker di Melodia Premium — permette all'app di aprirsi e funzionare anche
 // completamente offline (senza rete), non solo di riprodurre le canzoni già salvate.
-const SHELL_CACHE = 'melodia-shell-v2';
+const SHELL_CACHE = 'melodia-shell-v3';
 const SHELL_URLS = ['/', '/spotify_moto.html', '/manifest.json'];
 
 self.addEventListener('install', (event) => {
@@ -43,4 +43,27 @@ self.addEventListener('fetch', (event) => {
   // Tutto il resto (canzoni, ricerche, ecc.) continua a funzionare come già gestito
   // dall'app stessa (che ha già la sua cache dedicata per l'audio offline) — il service
   // worker non si intromette qui, lascia fare al codice dell'app.
+});
+// ── Notifiche push: arrivano anche ad app chiusa ──
+self.addEventListener('push', (event) => {
+  let d = {};
+  try { d = event.data ? event.data.json() : {}; } catch (e) { d = { title: 'Melodia', body: event.data ? event.data.text() : '' }; }
+  event.waitUntil(self.registration.showNotification(d.title || 'Melodia', {
+    body: d.body || '',
+    icon: '/icon-192.png',
+    badge: '/icon-192.png',
+    tag: d.tag || 'melodia',
+    data: { url: d.url || '/' }
+  }));
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const url = (event.notification.data && event.notification.data.url) || '/';
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+      for (const c of list) { if ('focus' in c) return c.focus(); }
+      return self.clients.openWindow(url);
+    })
+  );
 });
