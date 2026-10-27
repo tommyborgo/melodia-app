@@ -1,1 +1,90 @@
-{"name":"Build Melodia APK","on":{"push":{"branches":["main"]},"workflow_dispatch":{}},"permissions":{"contents":"write"},"jobs":{"build":{"runs-on":"ubuntu-latest","steps":[{"uses":"actions/checkout@v4"},{"uses":"actions/setup-java@v4","with":{"distribution":"temurin","java-version":"17"}},{"uses":"actions/setup-python@v5","with":{"python-version":"3.11"}},{"uses":"gradle/actions/setup-gradle@v4","with":{"gradle-version":"8.7"}},{"name":"Build","run":"sed -i 's/, \"armeabi-v7a\"//' app/build.gradle && grep abiFilters app/build.gradle && gradle --no-daemon assembleRelease"},{"name":"Rename","run":"cp app/build/outputs/apk/release/app-release.apk melodia.apk"},{"uses":"actions/upload-artifact@v4","with":{"name":"melodia","path":"melodia.apk"}},{"name":"Release","env":{"GH_TOKEN":"${{ github.token }}"},"run":"gh release delete latest --yes --cleanup-tag || true; gh release create latest melodia.apk --title Melodia --notes 'Ultima versione di Melodia' --latest"}]}}}
+name: Build Melodia
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: '3 23 * * *'
+    - cron: '3 0 * * *'
+permissions:
+  contents: write
+jobs:
+  refresh:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Aggiornamento notturno catalogo
+        run: |
+          for i in 1 2 3 4 5 6; do
+            curl -fsS -m 120 https://melodia-server-9yo3.onrender.com/api/cat/refresh && break
+            sleep 20
+          done
+  apk:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: '8.7' }
+      - name: Solo arm64
+        run: sed -i 's/, "armeabi-v7a"//' app/build.gradle
+      - name: Build
+        run: gradle --no-daemon assembleRelease
+      - run: cp app/build/outputs/apk/release/app-release.apk melodia.apk
+      - uses: actions/upload-artifact@v4
+        with: { name: melodia-apk, path: melodia.apk }
+  desktop:
+    if: github.event_name != 'schedule'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, out: Melodia-Windows.exe }
+          - { os: macos-latest, out: Melodia-Mac-AppleSilicon.zip }
+          - { os: macos-15-intel, out: Melodia-Mac-Intel.zip }
+          - { os: ubuntu-latest, out: Melodia-Linux.tar.gz }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Prepara
+        shell: bash
+        run: |
+          cp app/src/main/python/server.py app/src/main/python/android_glue.py desktop/ 2>/dev/null || true
+          cp app/src/main/python/*.py desktop/ 2>/dev/null || true
+          cp app/src/main/assets/spotify_moto.html app/src/main/assets/sw.js desktop/
+          python -m pip install flask yt-dlp imageio-ffmpeg pyinstaller requests cryptography
+      - name: Build
+        shell: bash
+        working-directory: desktop
+        run: python build_desktop.py
+      - name: Pacchetto
+        shell: bash
+        working-directory: desktop
+        run: |
+          case "${{ matrix.out }}" in
+            *.exe) cp dist/Melodia.exe "../${{ matrix.out }}" ;;
+            *Mac*) cd dist && (ls; zip -r "../../${{ matrix.out }}" Melodia* ) ;;
+            *) tar -czf "../${{ matrix.out }}" -C dist Melodia ;;
+          esac
+      - uses: actions/upload-artifact@v4
+        with: { name: "${{ matrix.out }}", path: "${{ matrix.out }}" }
+  release:
+    needs: [apk, desktop]
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.apk.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: out, merge-multiple: true }
+      - name: Pubblica
+        env: { GH_TOKEN: "${{ github.token }}", GH_REPO: "${{ github.repository }}" }
+        run: |
+          ls -la out
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest out/* --title "Melodia" --notes "Ultima versione di Melodia" --latest
